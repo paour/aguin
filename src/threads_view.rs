@@ -4,15 +4,17 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use eframe::egui::{
     self, Align, CollapsingHeader, Color32, FontId, Key, Label, Layout, Modifiers, RichText,
-    TextEdit, TextFormat, TextStyle, WidgetText,
+    TextFormat, TextStyle, WidgetText,
     collapsing_header::CollapsingState,
     text::{CCursor, LayoutJob},
 };
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use egui_extras::{Column, TableBuilder};
+use egui_native_look as look;
 use serde::{Deserialize, Serialize};
 
 use crate::format::{self, compact, group_digits, tilde};
+use crate::theme;
 use crate::threads_db::{
     self, Block, Message, Request, Role, Thread, ToolCall, ToolOutput, Update,
 };
@@ -235,6 +237,33 @@ impl ThreadsView {
         }
     }
 
+    /// Cmd+F: the find field of the open thread, else the thread search.
+    pub fn find(&mut self) {
+        if self.selected.is_some() {
+            self.find_bar.focus = true;
+        } else {
+            self.focus_search = true;
+        }
+    }
+
+    /// Cmd+Shift+F: the search over every thread.
+    pub fn search_all(&mut self) {
+        self.focus_search = true;
+    }
+
+    pub fn find_step(&mut self, forward: bool) {
+        self.find_bar.step = Some(forward);
+    }
+
+    pub fn toggle_subagents(&mut self) {
+        self.show_subagents = !self.show_subagents;
+        self.dirty = true;
+    }
+
+    pub fn subagents_shown(&self) -> bool {
+        self.show_subagents
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.handle_keys(ui.ctx());
         egui::Panel::bottom("threads_status").show(ui, |ui| self.status_bar(ui));
@@ -287,11 +316,13 @@ impl ThreadsView {
                 !find_field_focused && input.consume_key(Modifiers::NONE, Key::ArrowUp),
             )
         });
-        let thread_open = self.selected.is_some();
-        self.focus_search |= find_all || (find && !thread_open);
-        self.find_bar.focus |= find && thread_open;
+        if find_all {
+            self.search_all();
+        } else if find {
+            self.find();
+        }
         if previous || next {
-            self.find_bar.step = Some(next);
+            self.find_step(next);
         }
         let Some(last) = self.visible.len().checked_sub(1) else {
             return;
@@ -308,9 +339,9 @@ impl ThreadsView {
 
     fn list_header(&mut self, ui: &mut egui::Ui) {
         let search = ui.add(
-            TextEdit::singleline(&mut self.query)
-                .hint_text("Search threads and messages")
-                .desired_width(f32::INFINITY),
+            look::TextField::new(&mut self.query)
+                .search()
+                .hint("Search threads and messages"),
         );
         if std::mem::take(&mut self.focus_search) {
             search.request_focus();
@@ -322,7 +353,7 @@ impl ThreadsView {
         }
         ui.horizontal(|ui| {
             if ui
-                .checkbox(&mut self.show_subagents, "Subagents")
+                .add(look::Checkbox::new(&mut self.show_subagents, "Subagents"))
                 .on_hover_text("Also list the threads that agents started for subtasks")
                 .changed()
             {
@@ -369,10 +400,8 @@ impl ThreadsView {
                 row.col(|ui| {
                     ui.add_space(3.0);
                     ui.add(
-                        Label::new(
-                            RichText::new(format::first_line(thread.display_title())).strong(),
-                        )
-                        .truncate(),
+                        Label::new(theme::semibold(format::first_line(thread.display_title())))
+                            .truncate(),
                     );
                     ui.add(
                         Label::new(RichText::new(self.subtitle(thread)).small().weak()).truncate(),
@@ -564,13 +593,13 @@ fn thread_header(
     ui.horizontal_wrapped(|ui| {
         let command = thread.resume_command();
         if ui
-            .button("Copy resume command")
+            .add(look::Button::new("Copy resume command"))
             .on_hover_text(&command)
             .clicked()
         {
             ui.ctx().copy_text(command);
         }
-        if ui.button("Copy session id").clicked() {
+        if ui.add(look::Button::new("Copy session id")).clicked() {
             ui.ctx().copy_text(thread.session_id.clone());
         }
         let parent = thread
@@ -578,7 +607,7 @@ fn thread_header(
             .as_deref()
             .and_then(|parent| threads.iter().find(|t| t.session_id == parent));
         if let Some(parent) = parent
-            && ui.button("Open parent thread").clicked()
+            && ui.add(look::Button::new("Open parent thread")).clicked()
         {
             *open = Some(parent.id);
         }
@@ -603,10 +632,11 @@ fn thread_header(
 fn find_bar_ui(ui: &mut egui::Ui, bar: &mut FindBar) {
     ui.horizontal(|ui| {
         let field = ui.add(
-            TextEdit::singleline(&mut bar.find.query)
+            look::TextField::new(&mut bar.find.query)
+                .search()
                 .id_salt("find_in_thread")
-                .hint_text("Find in thread")
-                .desired_width(260.0),
+                .hint("Find in thread")
+                .width(260.0),
         );
         if std::mem::take(&mut bar.focus) {
             field.request_focus();
@@ -621,13 +651,17 @@ fn find_bar_ui(ui: &mut egui::Ui, bar: &mut FindBar) {
         }
         bar.focused = field.has_focus();
         if ui
-            .button("Previous")
+            .add(look::Button::new("Previous"))
             .on_hover_text("Shift+Enter or Cmd+Shift+G")
             .clicked()
         {
             bar.step = Some(false);
         }
-        if ui.button("Next").on_hover_text("Enter or Cmd+G").clicked() {
+        if ui
+            .add(look::Button::new("Next"))
+            .on_hover_text("Enter or Cmd+G")
+            .clicked()
+        {
             bar.step = Some(true);
         }
         ui.weak(bar.find.counter());
@@ -718,7 +752,7 @@ fn message_ui(ui: &mut egui::Ui, index: usize, message: &Message, draw: &mut Dra
                 Role::System => RichText::new("System"),
                 Role::Other(name) => RichText::new(name),
             };
-            ui.label(name.strong());
+            ui.label(name.family(look::bold_family()));
             ui.weak(format::time_from_millis(
                 message.timestamp,
                 "%Y-%m-%d %H:%M:%S",
@@ -911,7 +945,7 @@ fn output_ui(ui: &mut egui::Ui, draw: &Draw, at: At, output: &ToolOutput) {
         );
     }
     for (index, file) in output.files.iter().enumerate() {
-        ui.label(RichText::new(format!("{} {}", file.change, file.path)).strong());
+        ui.label(theme::semibold(format!("{} {}", file.change, file.path)));
         if !file.diff.is_empty() {
             let part = Part::Diff(index);
             let marks = draw.marks(at, part);

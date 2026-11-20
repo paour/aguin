@@ -8,7 +8,9 @@ chrono = "0.4.45"
 eframe = { version = "0.37.0", features = ["persistence"] }
 egui_commonmark = { version = "0.26.0", default-features = false, features = ["pulldown_cmark", "regex"] }
 egui_extras = "0.37.0"
+egui_native_look = "0.2.0"
 fancy-regex = "0.16"
+fontique = "0.11"
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -17,3 +19,8 @@ zstd = "0.14.4"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = "0.21.2"
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFString"] }
+objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont"] }

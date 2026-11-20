@@ -3,7 +3,9 @@ mod format;
 mod history_db;
 mod history_filter;
 mod history_view;
+mod menu;
 mod sqlite;
+mod theme;
 mod threads_db;
 mod threads_find;
 mod threads_view;
@@ -42,7 +44,11 @@ fn main() -> ExitCode {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Aguin")
         .with_inner_size([1280.0, 800.0])
-        .with_min_inner_size([720.0, 400.0]);
+        .with_min_inner_size([720.0, 400.0])
+        // macOS: the content runs under a transparent title bar, where the app puts its tabs.
+        .with_fullsize_content_view(true)
+        .with_titlebar_shown(false)
+        .with_title_shown(false);
     if let Some(icon) = app_icon() {
         viewport = viewport.with_icon(icon);
     }

@@ -6,11 +6,13 @@ use eframe::egui::{
     self, Align, ComboBox, Key, Label, Layout, Modifiers, RichText, TextEdit, TextWrapMode,
 };
 use egui_extras::{Column, TableBuilder};
+use egui_native_look as look;
 use serde::{Deserialize, Serialize};
 
 use crate::format::{self, group_digits, tilde};
 use crate::history_db::{self, Entry, Update};
 use crate::history_filter::{ExitFilter, Filter};
+use crate::theme;
 
 /// What the history tab restores at the next start.
 #[derive(Default, Serialize, Deserialize)]
@@ -95,6 +97,10 @@ impl HistoryView {
         }
     }
 
+    pub fn find(&mut self) {
+        self.focus_search = true;
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.handle_keys(ui.ctx());
         egui::Panel::top("history_filters").show(ui, |ui| {
@@ -157,7 +163,9 @@ impl HistoryView {
                 input.consume_key(Modifiers::NONE, Key::ArrowUp),
             )
         });
-        self.focus_search |= find;
+        if find {
+            self.find();
+        }
         let Some(last) = self.visible.len().checked_sub(1) else {
             return;
         };
@@ -174,19 +182,21 @@ impl HistoryView {
     fn filter_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let search = ui.add(
-                TextEdit::singleline(&mut self.filter.query)
-                    .hint_text("Search commands")
-                    .desired_width(320.0),
+                look::TextField::new(&mut self.filter.query)
+                    .search()
+                    .hint("Search commands")
+                    .width(320.0),
             );
             if std::mem::take(&mut self.focus_search) {
                 search.request_focus();
             }
             ui.add(
-                TextEdit::singleline(&mut self.filter.cwd)
-                    .hint_text("Directory")
-                    .desired_width(220.0),
+                look::TextField::new(&mut self.filter.cwd)
+                    .hint("Directory")
+                    .width(220.0),
             );
             ComboBox::from_id_salt("host")
+                .icon(look::combo_icon)
                 .selected_text(self.filter.host.as_deref().unwrap_or("All hosts"))
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.filter.host, None, "All hosts");
@@ -199,6 +209,7 @@ impl HistoryView {
                     }
                 });
             ComboBox::from_id_salt("exit")
+                .icon(look::combo_icon)
                 .selected_text(self.filter.exit.label())
                 .show_ui(ui, |ui| {
                     for exit in ExitFilter::ALL {
@@ -212,13 +223,15 @@ impl HistoryView {
                 .map(|s| format!("Session {} ×", format::short_id(s)));
             if let Some(chip) = session_chip
                 && ui
-                    .button(chip)
+                    .add(look::Button::new(chip))
                     .on_hover_text("Stop filtering by session")
                     .clicked()
             {
                 self.filter.session = None;
             }
-            if self.filter != Filter::default() && ui.button("Clear filters").clicked() {
+            if self.filter != Filter::default()
+                && ui.add(look::Button::new("Clear filters")).clicked()
+            {
                 self.filter = Filter::default();
             }
         });
@@ -279,7 +292,7 @@ impl HistoryView {
             .header(row_height, |mut header| {
                 for title in ["Time", "Duration", "Exit", "Command", "Directory", "Host"] {
                     header.col(|ui| {
-                        ui.strong(title);
+                        ui.label(theme::semibold(title));
                     });
                 }
             })
@@ -330,7 +343,7 @@ impl HistoryView {
 
         ui.horizontal(|ui| {
             ui.heading("Command");
-            if ui.button("Copy").clicked() {
+            if ui.add(look::Button::new("Copy")).clicked() {
                 ui.ctx().copy_text(entry.command.clone());
             }
         });
@@ -389,7 +402,7 @@ impl HistoryView {
 
         ui.horizontal_wrapped(|ui| {
             if ui
-                .button("Show session")
+                .add(look::Button::new("Show session"))
                 .on_hover_text("Clear the filters and list only the commands of this session")
                 .clicked()
             {
@@ -398,13 +411,13 @@ impl HistoryView {
                     ..Default::default()
                 });
             }
-            if ui.button("Filter by directory").clicked() {
+            if ui.add(look::Button::new("Filter by directory")).clicked() {
                 next_filter = Some(Filter {
                     cwd: entry.cwd.clone(),
                     ..self.filter.clone()
                 });
             }
-            if ui.button("Filter by host").clicked() {
+            if ui.add(look::Button::new("Filter by host")).clicked() {
                 next_filter = Some(Filter {
                     host: Some(entry.host().to_owned()),
                     ..self.filter.clone()
