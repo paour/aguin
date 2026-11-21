@@ -1,6 +1,6 @@
 cask "aguin" do
   version "0.1.2"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "aed4549d25d319699bb9b6f001234fce8ef1af94e92536a08453e954ee41ad3b"
 
   url "https://github.com/paour/aguin/releases/download/v#{version}/Aguin-#{version}-macos-universal.zip"
   name "Aguin"
