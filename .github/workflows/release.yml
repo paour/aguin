@@ -1,0 +1,145 @@
+# Builds Aguin for macOS, Windows and Linux when a version tag is pushed, publishes a GitHub
+# release with the archives, and points the Homebrew cask at the new macOS archive.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos-universal
+          - os: windows-latest
+            platform: windows-x86_64
+          # The oldest supported Ubuntu, so that the binary runs with older glibc versions.
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: ubuntu-22.04-arm
+            platform: linux-aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check that the tag matches the version in Cargo.toml
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        shell: bash
+        run: rustup update stable --no-self-update && rustup default stable
+
+      - name: Install the Linux libraries that eframe needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build the macOS app
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          scripts/bundle-macos.sh --universal
+          mkdir dist
+          # ditto keeps the bundle's signature and extended attributes, which zip can lose.
+          ditto -c -k --keepParent target/release/Aguin.app "dist/Aguin-$VERSION-macos-universal.zip"
+
+      - name: Build the Linux binary
+        if: runner.os == 'Linux'
+        env:
+          NAME: aguin-${{ steps.version.outputs.version }}-${{ matrix.platform }}
+        run: |
+          cargo build --release --locked
+          mkdir -p "dist/$NAME"
+          cp target/release/aguin README.md LICENSE-MIT LICENSE-APACHE "dist/$NAME/"
+          tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
+          rm -r "dist/$NAME"
+
+      - name: Build the Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NAME: aguin-${{ steps.version.outputs.version }}-${{ matrix.platform }}
+        run: |
+          cargo build --release --locked
+          New-Item -ItemType Directory -Path "dist/$env:NAME" | Out-Null
+          Copy-Item target/release/aguin.exe, README.md, LICENSE-MIT, LICENSE-APACHE "dist/$env:NAME/"
+          Compress-Archive -Path "dist/$env:NAME" -DestinationPath "dist/$env:NAME.zip"
+          Remove-Item -Recurse "dist/$env:NAME"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Aguin ${GITHUB_REF_NAME#v}" \
+            --generate-notes
+
+  cask:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-universal
+          path: dist
+
+      - name: Update the cask and push it to main
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          sha=$(sha256sum "dist/Aguin-$version-macos-universal.zip" | cut -d ' ' -f 1)
+          sed -i \
+            -e "s/^  version \".*\"$/  version \"$version\"/" \
+            -e "s/^  sha256 \".*\"$/  sha256 \"$sha\"/" \
+            Casks/aguin.rb
+          git diff --exit-code --quiet Casks/aguin.rb && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Update the Homebrew cask to $version"
+          git push origin HEAD:main

@@ -1,9 +1,21 @@
 #!/bin/sh
 # Builds target/release/Aguin.app from the release binary, assets/Info.plist and assets/icon.png.
+# With --universal, the binary runs on Apple silicon and Intel Macs.
 set -eu
 cd "$(dirname "$0")/.."
 
-cargo build --release
+if [ "${1:-}" = "--universal" ]; then
+	cargo build --release --locked --target aarch64-apple-darwin
+	cargo build --release --locked --target x86_64-apple-darwin
+	mkdir -p target/universal
+	bin=target/universal/aguin
+	lipo -create -output "$bin" \
+		target/aarch64-apple-darwin/release/aguin \
+		target/x86_64-apple-darwin/release/aguin
+else
+	cargo build --release
+	bin=target/release/aguin
+fi
 
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
 app=target/release/Aguin.app
@@ -21,7 +33,7 @@ done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 rm -rf "$iconset"
 
-cp target/release/aguin "$app/Contents/MacOS/aguin"
+cp "$bin" "$app/Contents/MacOS/aguin"
 sed "s/@VERSION@/$version/g" assets/Info.plist >"$app/Contents/Info.plist"
 plutil -lint -s "$app/Contents/Info.plist"
 

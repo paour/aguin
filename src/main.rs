@@ -1,3 +1,6 @@
+// Windows: a release build opens no console window beside the app.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod format;
 mod history_db;

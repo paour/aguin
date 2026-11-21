@@ -1,7 +1,11 @@
 [package]
 name = "aguin"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
+rust-version = "1.95"
+description = "A desktop viewer for the atuin shell history and the coding-agent threads that atuin captures"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/paour/aguin"
 
 [dependencies]
 chrono = "0.4.45"
